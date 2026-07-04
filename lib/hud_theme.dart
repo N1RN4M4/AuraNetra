@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:personal_hud_lite/core/hud_settings.dart';
+import 'package:aura_netra/core/hud_settings.dart';
+
+import 'core/hud_settings.dart';
 
 // Static mutable singleton. HudScreen calls apply() before building —
 // all child widgets reading these getters then see the updated values.

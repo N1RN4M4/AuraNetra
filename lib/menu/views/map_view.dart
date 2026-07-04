@@ -94,22 +94,38 @@ class _MapBodyViewState extends State<MapBodyView> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          GoogleMap(
-            initialCameraPosition: _kInitialCamera,
-            onMapCreated: _onMapCreated,
-            onCameraMove: _onCameraMove,
-            style: hudMapStyle,
-            mapType: MapType.normal,
-            compassEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            myLocationEnabled: _locationGranted,
-            myLocationButtonEnabled: _locationGranted,
+          // Render the map slightly taller than the frame and align it to the
+          // top so the Google logo / attribution (anchored to the map's bottom
+          // edge) is clipped off by the surrounding ClipRRect.
+          Positioned.fill(
+            child: LayoutBuilder(
+              builder: (context, c) {
+                const logoStrip = 30.0;
+                return OverflowBox(
+                  alignment: Alignment.topCenter,
+                  minWidth: c.maxWidth, maxWidth: c.maxWidth,
+                  minHeight: c.maxHeight + logoStrip,
+                  maxHeight: c.maxHeight + logoStrip,
+                  child: GoogleMap(
+                    initialCameraPosition: _kInitialCamera,
+                    onMapCreated: _onMapCreated,
+                    onCameraMove: _onCameraMove,
+                    style: hudMapStyle,
+                    mapType: MapType.normal,
+                    compassEnabled: false,
+                    zoomControlsEnabled: false,
+                    mapToolbarEnabled: false,
+                    myLocationEnabled: _locationGranted,
+                    myLocationButtonEnabled: _locationGranted,
+                  ),
+                );
+              },
+            ),
           ),
           Positioned(
-            top: 8, right: 10,
+            top: 8, left: 10,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _MapBadge(label: 'ZOOM',    value: '${zoom.toStringAsFixed(0)}×'),
                 const SizedBox(height: 4),

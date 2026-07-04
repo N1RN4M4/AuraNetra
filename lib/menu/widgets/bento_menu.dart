@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/hud_theme.dart';
 import '../views/map_view.dart';
 import '../views/home_view.dart';
@@ -167,65 +169,255 @@ class _BentoCard extends StatelessWidget {
   }
 }
 
-// ─── Left nav ────────────────────────────────────────────────────────────────
+// ─── Left nav — rotary dial ───────────────────────────────────────────────────
+// A circular / rotary selector (à la the reference "Huly Dial" menu): the nav
+// entries ride an arc whose centre is pushed off the left edge of the card. The
+// entry swung to the arc's rightmost point (the vertical centre) is the active
+// section — enlarged and lit — while its neighbours curve back toward the edge,
+// shrinking and fading out. Drag vertically to spin the dial, or tap any entry
+// to swing it into the centre.
 
-class _LeftNav extends StatelessWidget {
+class _NavEntry {
+  final IconData icon;
+  final String label;
+  final String key;
+  const _NavEntry(this.icon, this.label, this.key);
+}
+
+const List<_NavEntry> _navEntries = [
+  _NavEntry(Icons.bar_chart_rounded, 'STATS', 'STATS'),
+  _NavEntry(Icons.map_rounded, 'MAP', 'MAP'),
+  _NavEntry(Icons.home_rounded, 'HOME', 'HOME'),
+  _NavEntry(Icons.star_rounded, 'FAV', 'FAV'),
+  _NavEntry(Icons.settings_rounded, 'SET', 'SET'),
+  _NavEntry(Icons.camera_alt_outlined, 'AR', 'AR'),
+  _NavEntry(Icons.headphones_rounded, 'BT', 'BT'),
+];
+
+class _LeftNav extends StatefulWidget {
   final String activeNav;
   final ValueChanged<String> onNavChanged;
 
   const _LeftNav({required this.activeNav, required this.onNavChanged});
 
   @override
+  State<_LeftNav> createState() => _LeftNavState();
+}
+
+class _LeftNavState extends State<_LeftNav>
+    with SingleTickerProviderStateMixin {
+  // Arc geometry — a large radius with the centre pushed off the left edge
+  // yields a gentle rotary sweep inside the narrow nav column.
+  static const double _radius = 120;
+  static const double _step = 0.36; // radians between adjacent entries
+  static const double _maxAngle = 1.18; // cull entries swung past this
+
+  double get _pxPerItem => _radius * _step;
+
+  // Fractional index parked at the arc centre; round(_p) is the active entry.
+  late double _p = _indexOf(widget.activeNav).toDouble();
+
+  late final AnimationController _settle = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  )..addListener(() {
+      final a = _anim;
+      if (a != null) setState(() => _p = a.value);
+    });
+  Animation<double>? _anim;
+
+  int _indexOf(String key) {
+    final i = _navEntries.indexWhere((e) => e.key == key);
+    return i < 0 ? 0 : i;
+  }
+
+  void _animateTo(double target) {
+    _anim = Tween<double>(begin: _p, end: target).animate(
+      CurvedAnimation(parent: _settle, curve: Curves.easeOutCubic),
+    );
+    _settle.forward(from: 0);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LeftNav old) {
+    super.didUpdateWidget(old);
+    // Keep the dial in sync when the active section is changed elsewhere
+    // (e.g. the menu re-opening resets it to STATS).
+    final target = _indexOf(widget.activeNav);
+    if (target != _p.round()) _animateTo(target.toDouble());
+  }
+
+  @override
+  void dispose() {
+    _settle.dispose();
+    super.dispose();
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    _settle.stop();
+    setState(() {
+      _p = (_p - d.delta.dy / _pxPerItem)
+          .clamp(0.0, (_navEntries.length - 1).toDouble());
+    });
+  }
+
+  void _onDragEnd(DragEndDetails d) => _select(_p.round());
+
+  void _select(int index) {
+    final i = index.clamp(0, _navEntries.length - 1);
+    _animateTo(i.toDouble());
+    final key = _navEntries[i].key;
+    if (key != widget.activeNav) {
+      HapticFeedback.selectionClick();
+      widget.onNavChanged(key);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return _BentoCard(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _NavIcon(icon: Icons.bar_chart_rounded, label: 'STATS',
-                active: activeNav == 'STATS', onTap: () => onNavChanged('STATS')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.map_rounded, label: 'MAP',
-                active: activeNav == 'MAP', onTap: () => onNavChanged('MAP')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.home_rounded, label: 'HOME',
-                active: activeNav == 'HOME', onTap: () => onNavChanged('HOME')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.star_rounded, label: 'FAV',
-                active: activeNav == 'FAV', onTap: () => onNavChanged('FAV')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.settings_rounded, label: 'SET',
-                active: activeNav == 'SET', onTap: () => onNavChanged('SET')),
-            const SizedBox(height: 14),
-            Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: HudColors.panelBorder, width: 1.5),
-                color: HudColors.panelFill,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      child: Column(
+        children: [
+          _profileChip(),
+          const SizedBox(height: 6),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, c) => GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragUpdate: _onDragUpdate,
+                onVerticalDragEnd: _onDragEnd,
+                child: _buildDial(c.maxWidth, c.maxHeight),
               ),
-              child: Icon(Icons.person_rounded, color: HudColors.dimCyan, size: 20),
             ),
-            const SizedBox(height: 4),
-            Text('RIDER',
-                style: HudText.label
-                    .copyWith(fontSize: 7, letterSpacing: 2, color: HudColors.dimCyan)),
-            const SizedBox(height: 14),
-            _NavIcon(icon: Icons.camera_alt_outlined, label: 'AR',
-                active: activeNav == 'AR', onTap: () => onNavChanged('AR')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.headphones_rounded, label: 'BT',
-                active: activeNav == 'BT', onTap: () => onNavChanged('BT')),
-            const SizedBox(height: 4),
-            _NavIcon(icon: Icons.sports_motorsports_rounded, label: 'RIDE',
-                active: false, onTap: () => onNavChanged('RIDE')),
-          ],
-        ),
+          ),
+          const SizedBox(height: 6),
+          _rideButton(),
+        ],
       ),
     );
   }
+
+  Widget _buildDial(double w, double h) {
+    final cx = w / 2 - _radius; // arc centre, off the left edge
+    final cy = h / 2;
+
+    final items = <Widget>[];
+    for (int i = 0; i < _navEntries.length; i++) {
+      final angle = (i - _p) * _step;
+      if (angle.abs() > _maxAngle) continue;
+      final x = cx + _radius * math.cos(angle);
+      final y = cy + _radius * math.sin(angle);
+      final t = (1 - angle.abs() / _maxAngle).clamp(0.0, 1.0);
+      final active = angle.abs() < _step / 2;
+      final e = _navEntries[i];
+      items.add(Positioned(
+        left: x - 30,
+        top: y - 22,
+        width: 60,
+        height: 44,
+        child: Opacity(
+          opacity: (0.2 + 0.8 * t).clamp(0.0, 1.0),
+          child: Transform.scale(
+            scale: 0.7 + 0.34 * t,
+            child: _NavIcon(
+              icon: e.icon,
+              label: e.label,
+              active: active,
+              onTap: () => _select(i),
+            ),
+          ),
+        ),
+      ));
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(
+          painter: _DialArcPainter(center: Offset(cx, cy), radius: _radius),
+        ),
+        ...items,
+      ],
+    );
+  }
+
+  Widget _profileChip() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: HudColors.panelBorder, width: 1.5),
+            color: HudColors.panelFill,
+          ),
+          child: Icon(Icons.person_rounded, color: HudColors.dimCyan, size: 20),
+        ),
+        const SizedBox(height: 4),
+        Text('RIDER',
+            style: HudText.label
+                .copyWith(fontSize: 7, letterSpacing: 2, color: HudColors.dimCyan)),
+      ],
+    );
+  }
+
+  Widget _rideButton() {
+    return _NavIcon(
+      icon: Icons.sports_motorsports_rounded,
+      label: 'RIDE',
+      active: false,
+      onTap: () => widget.onNavChanged('RIDE'),
+    );
+  }
+}
+
+/// Draws the rotary guide: the concentric arc rails the entries ride on, plus a
+/// soft glow node parked at the arc's rightmost point (the active slot).
+class _DialArcPainter extends CustomPainter {
+  final Offset center;
+  final double radius;
+  const _DialArcPainter({required this.center, required this.radius});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const sweep = 2.4; // radians of arc kept visible
+    const start = -sweep / 2;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      start,
+      sweep,
+      false,
+      Paint()
+        ..color = HudColors.dimCyan.withValues(alpha: 0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius + 16),
+      start,
+      sweep,
+      false,
+      Paint()
+        ..color = HudColors.dimCyan.withValues(alpha: 0.08)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    // Active-slot glow at angle 0 (the arc's rightmost point).
+    final node = Offset(center.dx + radius, center.dy);
+    canvas.drawCircle(
+      node,
+      22,
+      Paint()..color = HudColors.cyan.withValues(alpha: 0.06),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DialArcPainter old) =>
+      old.center != center || old.radius != radius;
 }
 
 class _NavIcon extends StatelessWidget {
@@ -504,7 +696,7 @@ class _RightColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

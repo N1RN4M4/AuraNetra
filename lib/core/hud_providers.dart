@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'hud_settings.dart';
 import 'hud_state.dart';
 
@@ -68,11 +69,51 @@ final hudProvider = StateNotifierProvider<HudStateNotifier, HudState>((ref) {
 final arModeProvider = StateProvider<bool>((ref) => false);
 
 class HudSettingsNotifier extends StateNotifier<HudSettings> {
-  HudSettingsNotifier() : super(const HudSettings());
+  HudSettingsNotifier() : super(const HudSettings()) {
+    _load();
+  }
 
-  void setPrimaryFont(HudPrimaryFont f)     => state = state.copyWith(primaryFont: f);
-  void setSecondaryFont(HudSecondaryFont f) => state = state.copyWith(secondaryFont: f);
-  void setAccentColor(HudAccentColor c)     => state = state.copyWith(accentColor: c);
+  static const _kPrimary = 'hud_primary_font';
+  static const _kSecondary = 'hud_secondary_font';
+  static const _kAccent = 'hud_accent_color';
+
+  // Restore the last-saved configuration; falls back to defaults when unset.
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = HudSettings(
+      primaryFont: _enumByName(
+          HudPrimaryFont.values, prefs.getString(_kPrimary), state.primaryFont),
+      secondaryFont: _enumByName(
+          HudSecondaryFont.values, prefs.getString(_kSecondary), state.secondaryFont),
+      accentColor: _enumByName(
+          HudAccentColor.values, prefs.getString(_kAccent), state.accentColor),
+    );
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPrimary, state.primaryFont.name);
+    await prefs.setString(_kSecondary, state.secondaryFont.name);
+    await prefs.setString(_kAccent, state.accentColor.name);
+  }
+
+  static T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) =>
+      values.firstWhere((e) => e.name == name, orElse: () => fallback);
+
+  void setPrimaryFont(HudPrimaryFont f) {
+    state = state.copyWith(primaryFont: f);
+    _persist();
+  }
+
+  void setSecondaryFont(HudSecondaryFont f) {
+    state = state.copyWith(secondaryFont: f);
+    _persist();
+  }
+
+  void setAccentColor(HudAccentColor c) {
+    state = state.copyWith(accentColor: c);
+    _persist();
+  }
 }
 
 final hudSettingsProvider =

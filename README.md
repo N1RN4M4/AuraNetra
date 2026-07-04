@@ -1,4 +1,4 @@
-# personal_hud_lite
+# aura_netra
 
 A new Flutter project.
 
